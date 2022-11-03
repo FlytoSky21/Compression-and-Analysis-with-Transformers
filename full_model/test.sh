@@ -1,0 +1,1 @@
+python main.py --eval --resume /home/taofei/transformer/aaai22_ckp_files/ckp_s_q3/checkpoint.pth --model full_model --no-pretrained --data-path /home/taofei/transformer/dataset/ --output_dir ./eval/q3
