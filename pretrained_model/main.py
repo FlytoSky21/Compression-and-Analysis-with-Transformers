@@ -27,6 +27,7 @@ ImageFile.LOAD_TRUNCATED_IMAGES = True
 from losses import JointLoss
 import model
 import netron
+from torch.utils.tensorboard import SummaryWriter
 
 
 def get_args_parser():
@@ -250,6 +251,10 @@ def main(args):
         drop_block_rate=None,
     )
 
+    samples = torch.randn(4,3,224,224)
+    torch.onnx.export(model, samples, 'model.onnx', opset_version=11)
+    print("_____________________"*5)
+
     if args.finetune:
         if args.finetune.startswith('https'):
             checkpoint = torch.hub.load_state_dict_from_url(
@@ -370,6 +375,7 @@ def main(args):
     print(f"Start training for {args.epochs} epochs")
     start_time = time.time()
     max_accuracy = 0.0
+    writer = SummaryWriter(log_dir='logs')
     for epoch in range(args.start_epoch, args.epochs):
         if args.distributed:
             data_loader_train.sampler.set_epoch(epoch)
@@ -380,7 +386,7 @@ def main(args):
             args.clip_grad, model_ema, mixup_fn,
             set_training_mode=args.finetune == ''  # keep in eval mode during finetuning
         )
-
+        writer.add_scalar(tag='train/loss', scalar_value=train_stats['loss'], global_step=epoch)
         lr_scheduler.step(epoch)
         if args.output_dir and args.model_ema:
             checkpoint_paths = [output_dir / 'checkpoint.pth']
@@ -411,6 +417,11 @@ def main(args):
         max_accuracy = max(max_accuracy, test_stats["acc1"])
         print(f'Max accuracy: {max_accuracy:.2f}%')
 
+        writer.add_scalar(tag='test/acc1',scalar_value=test_stats['acc1'],global_step=epoch)
+        writer.add_scalar(tag='test/PSNR', scalar_value=test_stats['psnr'], global_step=epoch)
+        writer.add_scalar(tag='test/loss_rec', scalar_value=test_stats['loss_rec'], global_step=epoch)
+        writer.add_scalar(tag='test/loss_cls',scalar_value=test_stats['loss_cls'],global_step=epoch)
+
         log_stats = {**{f'train_{k}': v for k, v in train_stats.items()},
                      **{f'test_{k}': v for k, v in test_stats.items()},
                      'epoch': epoch,
@@ -419,7 +430,7 @@ def main(args):
         if args.output_dir and utils.is_main_process():
             with (output_dir / "log.txt").open("a") as f:
                 f.write(json.dumps(log_stats) + "\n")
-
+    writer.close()
     total_time = time.time() - start_time
     total_time_str = str(datetime.timedelta(seconds=int(total_time)))
     print('Training time {}'.format(total_time_str))
